@@ -1,86 +1,130 @@
-# 👋 Welcome to My Cybersecurity & Python Learning Journey
+# 🔐 Advanced Keylogger & Password Recovery Tool
 
-[![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Cybersecurity](https://img.shields.io/badge/Cybersecurity-FF0000?style=for-the-badge&logo=shield&logoColor=white)](https://github.com/topics/cybersecurity)
-[![Ethical Hacking](https://img.shields.io/badge/Ethical_Hacking-00C853?style=for-the-badge&logo=kali-linux&logoColor=white)](https://github.com/topics/ethical-hacking)
-[![Red Team](https://img.shields.io/badge/Red_Team-800000?style=for-the-badge&logo=hackaday&logoColor=white)](https://github.com/topics/red-team)
+![Version](https://img.shields.io/badge/version-1.0.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-## 🔐 About Me
+## 🌟 Overview
 
-I'm an aspiring cybersecurity professional and Python developer with a strong focus on ethical hacking and red team operations. Passionate about offensive security techniques, vulnerability research, and building secure applications. My repositories document my learning journey as I explore the offensive side of security while maintaining ethical boundaries and responsible practices.
+This tool is a sophisticated dual-purpose security utility that combines keylogging capabilities with browser credential extraction. It can monitor keyboard activity and capture screenshots while also recovering saved passwords from popular web browsers including Chrome and Arc. Perfect for data recovery, parental monitoring, or security assessments on systems you own.
 
-## 🛠️ Current Skills
+## ✨ Features
 
-- **Python**: Core concepts, OOP, automation scripts, exploit development
-- **Ethical Hacking**: Reconnaissance, vulnerability scanning, exploitation techniques
-- **Red Team Operations**: Attack vectors, persistence mechanisms, lateral movement
-- **Penetration Testing**: Methodology, reporting, remediation recommendations
-- **Linux**: Command line operations, bash scripting, security tool customization
-- **Web Security**: OWASP Top 10 vulnerabilities, attack methodologies
+### 🎯 Keylogging Features
 
-## 🚀 What I'm Learning
+- ⌨️ **Keystroke Monitoring** - Records all keystrokes with timestamps
+- 🖥️ **Active Window Tracking** - Logs which application is in use during typing
+- 📸 **Automatic Screenshots** - Takes periodic screenshots of user activity
+- 💾 **System Information Collection** - Gathers hardware and network details
+- 🕒 **Configurable Intervals** - Customize screenshot frequency and monitoring behavior
 
-- Advanced exploitation techniques and custom payload development
-- Social engineering and physical security assessment
-- Active Directory attack vectors and privilege escalation
-- Network protocol analysis and exploitation
-- Malware analysis and reverse engineering
-- Evasion techniques and red team tradecraft
+### 🔑 Password Recovery Features
 
-## 📂 My Projects
+- 🧠 **Smart Recovery** - Intelligently extracts credentials even when encrypted
+- 🌐 **Multi-Browser Support** - Works with Chrome, Arc, and more browsers
+- 💻 **Cross-Platform** - Runs on Windows, macOS and Linux
+- 🛡️ **Advanced Decryption** - Handles modern encryption methods including AES-GCM
+- 📊 **JSON Export** - Saves results in clean, structured JSON format
 
-### 🔒 [Keylogger](https://github.com/YourUsername/keylogger)
+## 🚀 Usage
 
-A Python-based keylogger demonstrating endpoint surveillance capabilities for educational purposes. This project showcases fundamental red team concepts including:
+1. Ensure you have Python 3.6+ installed
+2. Install required dependencies:
 
-### ☔ [Umbrella-Reminder](https://github.com/YourUsername/umbrella-reminder)
+```bash
+pip install -r requirements.txt
+```
 
-A weather monitoring application that sends notifications when rain is forecasted. While primarily a utility app, it demonstrates:
+3. Run the tool:
 
-### 💹 [Financial-Data-Retrieval-System](https://github.com/YourUsername/financial-data-retrieval-system)
+```bash
+python keylogger.py
+```
 
-A comprehensive tool for fetching, analyzing, and visualizing financial market data, incorporating security principles:
+4. View keylogger results in the `logger.txt` file and browser data in the generated `browser_data.json` file
 
-### 🎮 [Tic-Tac-Toe](https://github.com/YourUsername/tic-tac-toe)
+## 📋 Supported Browsers
 
-A Python implementation of the classic game with an AI opponent, serving as a foundation for:
+| Browser | Windows | macOS | Linux |
+| ------- | ------- | ----- | ----- |
+| Chrome  | ✅      | ✅    | ✅    |
+| Arc     | ✅      | ✅    | ✅    |
 
-## 🛡️ Ethical Hacking Toolkit
+## 🛠️ How It Works
 
-- Custom reconnaissance scripts and automation tools
-- Network vulnerability scanners and exploitation frameworks
-- Web application security testing tools
-- Wireless security assessment utilities
-- Social engineering templates and resources
+### Keylogging Module
 
-## 📊 My GitHub Stats
+The tool captures keyboard input using the `pynput` library, tracking:
 
-![My GitHub stats](https://github-readme-stats.vercel.app/api?username=YourUsername&show_icons=true&theme=radical)
+- Key presses with timestamps
+- Active application windows
+- Periodic screenshots to document visual activity
+- System and network information
 
-## 🎯 Future Goals
+### Password Recovery Module
 
-- Achieve OSCP certification
-- Master advanced post-exploitation techniques
-- Develop custom red team tools and frameworks
-- Contribute to open-source security projects
-- Participate in bug bounty programs
-- Document methodologies for the community
+The tool utilizes platform-specific methods to access and decrypt browser password databases:
 
-## 🔗 Connect With Me
+- **Windows**: Uses DPAPI and AES-GCM decryption for modern browsers
+- **macOS**: Accesses keychain data and employs PBKDF2 key derivation
+- **Linux**: Implements Secret Service API and fallback mechanisms
 
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/martin-mitkov)
+## 📝 Output Examples
 
-## 📚 Resources I Recommend
+### Browser Data Output (browser_data.json)
 
-- [HackTheBox](https://hackthebox.eu) - Hands-on penetration testing labs
-- [TryHackMe](https://tryhackme.com) - Interactive cybersecurity training
-- [OWASP](https://owasp.org) - Web application security resources
-- [PentesterLab](https://pentesterlab.com) - Web penetration testing exercises
-- [Offensive Security](https://www.offensive-security.com/blog/) - Professional training resources
-- [The Hacker Playbook Series](https://securepla.net/) - Practical attack methodologies
+```json
+{
+  "arc": {
+    "passwords": [
+      {
+        "url": "https://example.com",
+        "username": "user@example.com",
+        "password": "yourpassword"
+      }
+    ],
+    "history": { "data": [] },
+    "count": 1
+  }
+}
+```
+
+### Keylogger Output (logger.txt)
+
+```
+Firefox - (H)
+Firefox - (e)
+Firefox - (l)
+Firefox - (l)
+Firefox - (o)
+Firefox - ( )
+Firefox - (w)
+Firefox - (o)
+Firefox - (r)
+Firefox - (l)
+Firefox - (d)
+```
+
+## ⚠️ Legal Disclaimer
+
+This tool is provided for educational and legitimate purposes only. Use only on systems you own or have explicit permission to monitor. Unauthorized monitoring of third-party systems is illegal and unethical. Always inform users when monitoring is active in a workplace environment.
+
+## 🔧 Requirements
+
+- Python 3.6+
+- pynput
+- pillow (PIL)
+- pycryptodomex
+- cryptography
+- pywin32 (Windows only)
+- secretstorage (Linux only)
+
+## 🤝 Contributing
+
+Contributions are welcome! Feel free to submit pull requests to add support for more browsers or enhance existing functionality.
+
+## 📜 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ---
 
-> "The best way to learn security is by understanding how to break it."
-
-_Last updated: April 2025_
+⭐ Star this repository if you find it useful!
