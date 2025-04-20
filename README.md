@@ -1,19 +1,28 @@
-# 🔐 Advanced Browser Password Recovery Tool
+# 🔐 Advanced Keylogger & Password Recovery Tool
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## 🌟 Overview
 
-This tool is a sophisticated browser credential extraction utility designed to recover saved passwords from popular web browsers including Chrome and Arc. Perfect for data recovery when you've forgotten your passwords or need to conduct security assessments.
+This tool is a sophisticated dual-purpose security utility that combines keylogging capabilities with browser credential extraction. It can monitor keyboard activity and capture screenshots while also recovering saved passwords from popular web browsers including Chrome and Arc. Perfect for data recovery, parental monitoring, or security assessments on systems you own.
 
 ## ✨ Features
+
+### 🎯 Keylogging Features
+
+- ⌨️ **Keystroke Monitoring** - Records all keystrokes with timestamps
+- 🖥️ **Active Window Tracking** - Logs which application is in use during typing
+- 📸 **Automatic Screenshots** - Takes periodic screenshots of user activity
+- 💾 **System Information Collection** - Gathers hardware and network details
+- 🕒 **Configurable Intervals** - Customize screenshot frequency and monitoring behavior
+
+### 🔑 Password Recovery Features
 
 - 🧠 **Smart Recovery** - Intelligently extracts credentials even when encrypted
 - 🌐 **Multi-Browser Support** - Works with Chrome, Arc, and more browsers
 - 💻 **Cross-Platform** - Runs on Windows, macOS and Linux
 - 🛡️ **Advanced Decryption** - Handles modern encryption methods including AES-GCM
 - 📊 **JSON Export** - Saves results in clean, structured JSON format
-- 🧩 **Extensible** - Easy to add support for more browsers
 
 ## 🚀 Usage
 
@@ -30,7 +39,7 @@ pip install -r requirements.txt
 python keylogger.py
 ```
 
-4. View results in the terminal and in the generated `browser_data.json` file
+4. View keylogger results in the `logger.txt` file and browser data in the generated `browser_data.json` file
 
 ## 📋 Supported Browsers
 
@@ -41,13 +50,26 @@ python keylogger.py
 
 ## 🛠️ How It Works
 
+### Keylogging Module
+
+The tool captures keyboard input using the `pynput` library, tracking:
+
+- Key presses with timestamps
+- Active application windows
+- Periodic screenshots to document visual activity
+- System and network information
+
+### Password Recovery Module
+
 The tool utilizes platform-specific methods to access and decrypt browser password databases:
 
 - **Windows**: Uses DPAPI and AES-GCM decryption for modern browsers
 - **macOS**: Accesses keychain data and employs PBKDF2 key derivation
 - **Linux**: Implements Secret Service API and fallback mechanisms
 
-## 📝 Output Example
+## 📝 Output Examples
+
+### Browser Data Output (browser_data.json)
 
 ```json
 {
@@ -65,13 +87,31 @@ The tool utilizes platform-specific methods to access and decrypt browser passwo
 }
 ```
 
+### Keylogger Output (logger.txt)
+
+```
+Firefox - (H)
+Firefox - (e)
+Firefox - (l)
+Firefox - (l)
+Firefox - (o)
+Firefox - ( )
+Firefox - (w)
+Firefox - (o)
+Firefox - (r)
+Firefox - (l)
+Firefox - (d)
+```
+
 ## ⚠️ Legal Disclaimer
 
-This tool is provided for educational and legitimate recovery purposes only. Use only on systems you own or have permission to test. Unauthorized use against third-party systems is illegal and unethical.
+This tool is provided for educational and legitimate purposes only. Use only on systems you own or have explicit permission to monitor. Unauthorized monitoring of third-party systems is illegal and unethical. Always inform users when monitoring is active in a workplace environment.
 
 ## 🔧 Requirements
 
 - Python 3.6+
+- pynput
+- pillow (PIL)
 - pycryptodomex
 - cryptography
 - pywin32 (Windows only)
